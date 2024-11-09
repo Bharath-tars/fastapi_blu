@@ -13,7 +13,6 @@ import time
 
 app = FastAPI()
 
-# Replace with actual API keys and endpoint
 API_KEY = "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"
 subscription_key = "9VyengLPTp5sLNQQms00PWUkAjUI7rZKX2p1UmPJspRkPxQ07DANJQQJ99AKACqBBLyXJ3w3AAAFACOGPbfr"
 endpoint = "https://my-ocr-image.cognitiveservices.azure.com/"
