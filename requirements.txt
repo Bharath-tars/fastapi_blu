@@ -3,3 +3,4 @@ requests
 pandas
 azure-cognitiveservices-vision-computervision
 msrest
+uvicorn
