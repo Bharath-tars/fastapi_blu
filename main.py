@@ -13,9 +13,10 @@ import time
 
 app = FastAPI()
 
+# Replace with actual API keys and endpoint
 API_KEY = os.environ.get("open-key")
 if not API_KEY:
-    raise ValueError("API_KEY environment variable 'open-key' not set.")
+    raise HTTPException(status_code=400, detail="No API KEY Functioning")
 subscription_key = "9VyengLPTp5sLNQQms00PWUkAjUI7rZKX2p1UmPJspRkPxQ07DANJQQJ99AKACqBBLyXJ3w3AAAFACOGPbfr"
 endpoint = "https://my-ocr-image.cognitiveservices.azure.com/"
 computervision_client = ComputerVisionClient(endpoint, CognitiveServicesCredentials(subscription_key))
@@ -30,7 +31,8 @@ start_time_ai = 0
 start_time_ocr = 0
 end_time_ai = 0
 end_time_ocr = 0
-def get_openai_response(prompt, model_name=DEFAULT_MODEL):
+
+def get_openai_response(prompt, model_name=DEFAULT_MODEL, retries=3):
 
     headers = {
         'Authorization': f'Bearer {API_KEY}',
@@ -42,30 +44,31 @@ def get_openai_response(prompt, model_name=DEFAULT_MODEL):
         'max_tokens': 1500,
         'temperature': 0.5
     }
-    try:
-        response = requests.post('https://api.openai.com/v1/chat/completions', headers=headers, json=data)
-        response.raise_for_status()
-        return response.json()['choices'][0]['message']['content']
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 429:  # Rate limit error
-            print("Rate limit exceeded. Stopping the process.")
-            raise Exception("Rate limit exceeded. Stopping the process.")
-        else:
-            print(f"HTTP error occurred: {e}")
+    for attempt in range(retries):
+        try:
+            response = requests.post('https://api.openai.com/v1/chat/completions', headers=headers, json=data)
+            response.raise_for_status()
+            return response.json()['choices'][0]['message']['content']
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 429:  # Rate limit error
+                print("Rate limit exceeded. Stopping the process.")
+            else:
+                print(f"HTTP error occurred: {e}")
+                raise
+        except requests.exceptions.RequestException as e:
+            print(f"Error during API request: {e}")
             raise
-    except requests.exceptions.RequestException as e:
-        print(f"Error during API request: {e}")
-        raise
+    print("Failed to get response after multiple attempts. Returning None.")
 
-def process_invoices(invoice_texts, model_name=DEFAULT_MODEL):
+def process_invoicing(invoice_texts, model_name=DEFAULT_MODEL):
     all_data = []
     if model_name not in AVAILABLE_MODELS:
         print(f"Error: Model '{model_name}' is not available. Using default model '{DEFAULT_MODEL}' instead.")
         model_name = DEFAULT_MODEL
+    responses = []
     for ocr_output in invoice_texts:
         # Print OCR text for debugging purposes
-        print("OCR Output:", ocr_output)
-        
+        print(len(ocr_output))        
         prompt = f"""
         The following text is extracted from an invoice:
         {ocr_output}
@@ -102,6 +105,7 @@ def process_invoices(invoice_texts, model_name=DEFAULT_MODEL):
         - If any fields are not found, return "not found" as the value.
         """
         response_content = get_openai_response(prompt, model_name)
+        print(len(response_content))
         if not response_content:
             continue
         try:
@@ -153,7 +157,6 @@ def process_invoices(invoice_texts, model_name=DEFAULT_MODEL):
                     summary_data[f"Amount {i}"] = item.get("amount", "not found")
 
         all_data.append(summary_data)
-
     return pd.DataFrame(all_data)
 
 # Function to extract text from image using Azure OCR
@@ -185,12 +188,11 @@ async def upload_invoice(file: UploadFile = File(...)):
         print("Upload done")
         with open(file_location, "wb") as f:
             f.write(await file.read())
-        start_time_ocr = time.time()
         invoice_text = extract_text_from_image(file_location)
-        end_time_ocr = time.time()
+        print(invoice_text)
         if invoice_text:
             print("Text extracted successfully.")
-            invoice_data = process_invoices([invoice_text])
+            invoice_data = process_invoicing([invoice_text])
             if invoice_data.empty:
                 raise HTTPException(status_code=400, detail="No valid data extracted from the image.")
             print("Invoice data extracted successfully.")
